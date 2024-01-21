@@ -1,0 +1,100 @@
+from Bio import SeqIO
+from transformers import AutoTokenizer, AutoModel
+import torch
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier, BaggingClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import classification_report, accuracy_score, recall_score, f1_score
+from sklearn.ensemble import RandomForestClassifier, StackingClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.preprocessing import StandardScaler
+from itertools import combinations
+
+# Function to parse FASTA files and extract sequences
+def parse_fasta(file_path):
+    fasta_sequences = SeqIO.parse(open(file_path), 'fasta')
+    sequences = []
+    for fasta in fasta_sequences:
+        sequences.append(str(fasta.seq))
+    return sequences
+
+# Load the tokenizer and model from Hugging Face
+model_name = "facebook/esm2_t12_35M_UR50D"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModel.from_pretrained(model_name)
+
+# Parse the FASTA files
+moonlighting_sequences = parse_fasta("moonlighting.fasta")
+nonMP_sequences = parse_fasta("nonMP.fasta")
+
+# Combine the sequences and create labels
+sequences = moonlighting_sequences + nonMP_sequences
+labels = [1] * len(moonlighting_sequences) + [0] * len(nonMP_sequences)
+
+# Tokenize and encode sequences
+inputs = tokenizer(sequences, padding=True, truncation=True, return_tensors="pt")
+
+# Generate embeddings
+with torch.no_grad():
+    outputs = model(**inputs)
+
+# Extract the embeddings
+embeddings = outputs.last_hidden_state.mean(dim=1).cpu().numpy()
+
+# Split the data
+X_train, X_test, y_train, y_test = train_test_split(embeddings, labels, test_size=0.2, random_state=42)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+def get_model_combinations(model_list, max_length):
+    model_combinations = []
+    for i in range(1, max_length + 1):
+        model_combinations.extend(combinations(model_list, i))
+    return model_combinations
+
+base_models = [
+    ('rf', RandomForestClassifier()),
+    ('knn', KNeighborsClassifier()),
+    ('svm', SVC(probability=True)),
+    ('lr', LogisticRegression()),
+    ('dt', DecisionTreeClassifier()),
+    ('nb', GaussianNB())
+]
+
+final_estimators = [
+    LogisticRegression(),
+    RandomForestClassifier(),
+    KNeighborsClassifier(),
+    SVC(probability=True),
+    DecisionTreeClassifier(),
+    GaussianNB()
+]
+
+def build_stacking_classifier(model_list, final_estimator):
+    estimators = list(model_list)
+    stacking_clf = StackingClassifier(estimators=estimators, final_estimator=final_estimator)
+    return stacking_clf
+
+model_combinations = get_model_combinations(base_models, 5)
+best_model = None
+best_score = 0
+
+for model_combo in model_combinations:
+    for final_estimator in final_estimators:
+        stacking_clf = build_stacking_classifier(model_combo, final_estimator)
+        stacking_clf.fit(X_train_scaled, y_train)
+        score = stacking_clf.score(X_test_scaled, y_test)
+        
+        if score > best_score:
+            best_model = stacking_clf
+            best_score = score
+
+print(f"Best Model: {best_model}")
+print(f"Best Score: {best_score}")
+
