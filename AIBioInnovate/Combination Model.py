@@ -14,14 +14,49 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.preprocessing import StandardScaler
 from itertools import combinations
+import matplotlib.pyplot as plt
+from collections import Counter
 
-# Function to parse FASTA files and extract sequences
+def calculate_diversity(sequence):
+    # Calculate diversity (e.g., amino acid frequency) for a given sequence
+    return dict(Counter(sequence))
+
 def parse_fasta(file_path):
-    fasta_sequences = SeqIO.parse(open(file_path), 'fasta')
+    # Parse .fasta file and return a list of sequences
     sequences = []
-    for fasta in fasta_sequences:
-        sequences.append(str(fasta.seq))
+    for record in SeqIO.parse(file_path, "fasta"):
+        sequences.append(str(record.seq))
     return sequences
+
+def diversity_plot(sequences):
+    # Calculate diversity for each sequence
+    sequence_diversities = [calculate_diversity(seq) for seq in sequences]
+
+    # Prepare data for the plot
+    labels = list(sequence_diversities[0].keys())
+    values = [[diversity.get(label, 0) for label in labels] for diversity in sequence_diversities]
+
+    # Create a diversity plot
+    fig, ax = plt.subplots(figsize=(10, 6))
+    for i, label in enumerate(labels):
+        ax.plot(range(1, len(sequences) + 1), [value[i] for value in values], label=label)
+
+    # Customize the plot
+    ax.set_xlabel("Sequence Index")
+    ax.set_ylabel("Frequency")
+    ax.set_title("Diversity Plot")
+    ax.legend()
+    plt.show()
+
+fasta_file_path = "moonlight.fasta"
+sequences = parse_fasta(fasta_file_path)
+diversity_plot(sequences)
+
+fasta_file_path = "nonMP.fasta"
+sequences = parse_fasta(fasta_file_path)
+diversity_plot(sequences)
+
+
 
 # Load the tokenizer and model from Hugging Face
 model_name = "facebook/esm2_t12_35M_UR50D"
